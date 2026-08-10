@@ -1,0 +1,804 @@
+
+import pandas as pd
+import numpy as np
+import os
+
+# ============================================================
+# RAW STRATEGY — EXACT 5-YEAR / REMAINING-PERIOD SPLIT
+# ============================================================
+
+CSV_FILE = "NQ_data.csv"
+
+NUM_SIMULATIONS = 10_000
+BASE_SEED = 42
+
+CONTRACTS = 4
+TICK_SIZE = 0.25
+TICKS = 200
+
+POINT_DISTANCE = TICK_SIZE * TICKS
+DOLLARS_PER_POINT_PER_CONTRACT = 2.0
+
+TP_SL_DOLLARS = (
+    POINT_DISTANCE
+    * DOLLARS_PER_POINT_PER_CONTRACT
+    * CONTRACTS
+)
+
+REQUIRED_START_TIME = "09:30:00"
+REQUIRED_END_TIME = "16:00:00"
+
+OUTPUT_FILE = "raw_5year_comparison.csv"
+
+
+# ============================================================
+# LOAD DATA
+# ============================================================
+
+if not os.path.exists(CSV_FILE):
+    print(f"ERROR: Could not find {CSV_FILE}")
+    raise SystemExit
+
+df = pd.read_csv(
+    CSV_FILE,
+    sep=";",
+    header=None,
+    names=[
+        "date",
+        "time",
+        "O",
+        "H",
+        "L",
+        "C",
+        "volume"
+    ]
+)
+
+for col in ["O", "H", "L", "C", "volume"]:
+    df[col] = pd.to_numeric(
+        df[col],
+        errors="coerce"
+    )
+
+df["datetime"] = pd.to_datetime(
+    df["date"].astype(str)
+    + " "
+    + df["time"].astype(str),
+    errors="coerce"
+)
+
+df = df.dropna(
+    subset=[
+        "datetime",
+        "O",
+        "H",
+        "L",
+        "C"
+    ]
+)
+
+df = (
+    df
+    .sort_values("datetime")
+    .reset_index(drop=True)
+)
+
+
+# ============================================================
+# BUILD ELIGIBLE FULL-SESSION DAYS
+# ============================================================
+
+eligible_days = []
+
+for date, day in df.groupby(
+    df["datetime"].dt.date
+):
+
+    day = (
+        day
+        .sort_values("datetime")
+        .reset_index(drop=True)
+    )
+
+    first_time = (
+        day.iloc[0]["datetime"]
+        .strftime("%H:%M:%S")
+    )
+
+    last_time = (
+        day.iloc[-1]["datetime"]
+        .strftime("%H:%M:%S")
+    )
+
+    if (
+        first_time == REQUIRED_START_TIME
+        and
+        last_time == REQUIRED_END_TIME
+    ):
+        eligible_days.append(day)
+
+
+# ============================================================
+# CALCULATE LONG / SHORT OUTCOMES
+# ============================================================
+
+day_results = []
+ambiguous_days = []
+
+for day in eligible_days:
+
+    date = day.iloc[0]["date"]
+
+    entry_bar = day.iloc[0]
+
+    entry = entry_bar["O"]
+
+    entry_time = entry_bar["datetime"]
+
+    # --------------------------------------------------------
+    # LONG LEVELS
+    # --------------------------------------------------------
+
+    long_target = (
+        entry
+        + POINT_DISTANCE
+    )
+
+    long_stop = (
+        entry
+        - POINT_DISTANCE
+    )
+
+    # --------------------------------------------------------
+    # SHORT LEVELS
+    # --------------------------------------------------------
+
+    short_target = (
+        entry
+        - POINT_DISTANCE
+    )
+
+    short_stop = (
+        entry
+        + POINT_DISTANCE
+    )
+
+    post_entry = day[
+        day["datetime"] > entry_time
+    ]
+
+
+    # ========================================================
+    # LONG
+    # ========================================================
+
+    long_result = None
+    long_exit_price = None
+    long_exit_time = None
+
+    for _, bar in post_entry.iterrows():
+
+        hit_target = (
+            bar["H"] >= long_target
+        )
+
+        hit_stop = (
+            bar["L"] <= long_stop
+        )
+
+        if hit_target and hit_stop:
+
+            long_result = "AMBIGUOUS"
+            break
+
+        elif hit_target:
+
+            long_result = "WIN"
+            long_exit_price = long_target
+            long_exit_time = bar["datetime"]
+            break
+
+        elif hit_stop:
+
+            long_result = "LOSS"
+            long_exit_price = long_stop
+            long_exit_time = bar["datetime"]
+            break
+
+    if long_result is None:
+
+        final_close = day.iloc[-1]["C"]
+
+        long_result = "TIME_EXIT"
+
+        long_exit_price = final_close
+        long_exit_time = day.iloc[-1]["datetime"]
+
+        long_pnl = (
+            (final_close - entry)
+            * DOLLARS_PER_POINT_PER_CONTRACT
+            * CONTRACTS
+        )
+
+    elif long_result == "WIN":
+
+        long_pnl = TP_SL_DOLLARS
+
+    elif long_result == "LOSS":
+
+        long_pnl = -TP_SL_DOLLARS
+
+    else:
+
+        long_pnl = np.nan
+
+
+    # ========================================================
+    # SHORT
+    # ========================================================
+
+    short_result = None
+    short_exit_price = None
+    short_exit_time = None
+
+    for _, bar in post_entry.iterrows():
+
+        hit_target = (
+            bar["L"] <= short_target
+        )
+
+        hit_stop = (
+            bar["H"] >= short_stop
+        )
+
+        if hit_target and hit_stop:
+
+            short_result = "AMBIGUOUS"
+            break
+
+        elif hit_target:
+
+            short_result = "WIN"
+            short_exit_price = short_target
+            short_exit_time = bar["datetime"]
+            break
+
+        elif hit_stop:
+
+            short_result = "LOSS"
+            short_exit_price = short_stop
+            short_exit_time = bar["datetime"]
+            break
+
+    if short_result is None:
+
+        final_close = day.iloc[-1]["C"]
+
+        short_result = "TIME_EXIT"
+
+        short_exit_price = final_close
+        short_exit_time = day.iloc[-1]["datetime"]
+
+        short_pnl = (
+            (entry - final_close)
+            * DOLLARS_PER_POINT_PER_CONTRACT
+            * CONTRACTS
+        )
+
+    elif short_result == "WIN":
+
+        short_pnl = TP_SL_DOLLARS
+
+    elif short_result == "LOSS":
+
+        short_pnl = -TP_SL_DOLLARS
+
+    else:
+
+        short_pnl = np.nan
+
+
+    # ========================================================
+    # SAVE DAY
+    # ========================================================
+
+    if (
+        long_result == "AMBIGUOUS"
+        or
+        short_result == "AMBIGUOUS"
+    ):
+
+        ambiguous_days.append(date)
+
+    day_results.append({
+
+        "date": date,
+
+        "entry_time": entry_time,
+
+        "entry": entry,
+
+        "long_pnl": long_pnl,
+
+        "short_pnl": short_pnl,
+
+        "long_result": long_result,
+
+        "short_result": short_result,
+
+        "long_exit_price": long_exit_price,
+
+        "short_exit_price": short_exit_price,
+
+        "long_exit_time": long_exit_time,
+
+        "short_exit_time": short_exit_time
+    })
+
+
+day_results = pd.DataFrame(day_results)
+
+
+# ============================================================
+# REMOVE AMBIGUOUS DAYS
+# ============================================================
+
+clean_days = (
+    day_results[
+        day_results["long_pnl"].notna()
+        &
+        day_results["short_pnl"].notna()
+    ]
+    .reset_index(drop=True)
+)
+
+
+# ============================================================
+# DATE HANDLING
+# ============================================================
+
+clean_days["date_dt"] = pd.to_datetime(
+    clean_days["date"]
+)
+
+clean_days = (
+    clean_days
+    .sort_values("date_dt")
+    .reset_index(drop=True)
+)
+
+
+earliest_date = (
+    clean_days["date_dt"].min()
+)
+
+latest_date = (
+    clean_days["date_dt"].max()
+)
+
+split_date = (
+    earliest_date
+    + pd.DateOffset(years=5)
+)
+
+
+# ============================================================
+# SPLIT DATA
+# ============================================================
+
+period_1 = clean_days[
+    clean_days["date_dt"] < split_date
+].copy()
+
+period_2 = clean_days[
+    clean_days["date_dt"] >= split_date
+].copy()
+
+
+# ============================================================
+# RANDOM SIMULATION FUNCTION
+# ============================================================
+
+def run_period(
+    period,
+    rng
+):
+
+    long_pnl = (
+        period["long_pnl"]
+        .to_numpy(dtype=float)
+    )
+
+    short_pnl = (
+        period["short_pnl"]
+        .to_numpy(dtype=float)
+    )
+
+    simulation_results = []
+
+    for simulation in range(
+        1,
+        NUM_SIMULATIONS + 1
+    ):
+
+        directions = rng.integers(
+            0,
+            2,
+            size=len(period)
+        )
+
+        pnl = np.where(
+            directions == 1,
+            long_pnl,
+            short_pnl
+        )
+
+        wins = np.sum(
+            pnl == TP_SL_DOLLARS
+        )
+
+        losses = np.sum(
+            pnl == -TP_SL_DOLLARS
+        )
+
+        time_exits = (
+            len(pnl)
+            - wins
+            - losses
+        )
+
+        total_pnl = pnl.sum()
+
+        average_pnl = pnl.mean()
+
+        win_rate = (
+            wins
+            /
+            (wins + losses)
+            * 100
+            if wins + losses > 0
+            else 0
+        )
+
+        simulation_results.append({
+
+            "simulation": simulation,
+
+            "trades": len(pnl),
+
+            "wins": wins,
+
+            "losses": losses,
+
+            "time_exits": time_exits,
+
+            "win_rate": win_rate,
+
+            "total_pnl": total_pnl,
+
+            "average_pnl": average_pnl
+        })
+
+    return pd.DataFrame(
+        simulation_results
+    )
+
+
+# ============================================================
+# RUN BOTH PERIODS
+# ============================================================
+
+print()
+print("==============================")
+print("RAW STRATEGY EXACT 5-YEAR SPLIT")
+print("==============================")
+
+print(
+    f"Earliest clean trading date: "
+    f"{earliest_date.date()}"
+)
+
+print(
+    f"Latest clean trading date: "
+    f"{latest_date.date()}"
+)
+
+print(
+    f"Exact 5-year split date: "
+    f"{split_date.date()}"
+)
+
+print(
+    f"Ambiguous days removed: "
+    f"{len(ambiguous_days):,}"
+)
+
+print(
+    f"Total clean trading days: "
+    f"{len(clean_days):,}"
+)
+
+print()
+
+
+# Use separate deterministic RNG streams
+# so each period is independently reproducible.
+
+rng_1 = np.random.default_rng(
+    BASE_SEED
+)
+
+rng_2 = np.random.default_rng(
+    BASE_SEED
+)
+
+
+# ============================================================
+# PERIOD 1
+# ============================================================
+
+print("==============================")
+print("PERIOD 1")
+print("==============================")
+
+print(
+    f"{period_1['date_dt'].min().date()} "
+    f"to "
+    f"{period_1['date_dt'].max().date()}"
+)
+
+print(
+    f"Trading days: "
+    f"{len(period_1):,}"
+)
+
+results_1 = run_period(
+    period_1,
+    rng_1
+)
+
+
+# ============================================================
+# PERIOD 2
+# ============================================================
+
+print()
+print("==============================")
+print("PERIOD 2")
+print("==============================")
+
+print(
+    f"{period_2['date_dt'].min().date()} "
+    f"to "
+    f"{period_2['date_dt'].max().date()}"
+)
+
+print(
+    f"Trading days: "
+    f"{len(period_2):,}"
+)
+
+results_2 = run_period(
+    period_2,
+    rng_2
+)
+
+
+# ============================================================
+# SUMMARY FUNCTION
+# ============================================================
+
+def summarize(
+    results,
+    period
+):
+
+    return {
+
+        "Period start":
+            period["date_dt"].min().date(),
+
+        "Period end":
+            period["date_dt"].max().date(),
+
+        "Trading days":
+            len(period),
+
+        "Mean total P&L":
+            results["total_pnl"].mean(),
+
+        "Median total P&L":
+            results["total_pnl"].median(),
+
+        "Std. dev. total P&L":
+            results["total_pnl"].std(),
+
+        "5th percentile":
+            results["total_pnl"].quantile(0.05),
+
+        "95th percentile":
+            results["total_pnl"].quantile(0.95),
+
+        "Mean average trade":
+            results["average_pnl"].mean(),
+
+        "Median average trade":
+            results["average_pnl"].median(),
+
+        "Mean TP/SL win rate":
+            results["win_rate"].mean(),
+
+        "Profitable simulations":
+            (
+                results["total_pnl"] > 0
+            ).sum(),
+
+        "Profitable %":
+            (
+                results["total_pnl"] > 0
+            ).mean() * 100,
+
+        "Losing simulations":
+            (
+                results["total_pnl"] < 0
+            ).sum(),
+
+        "Losing %":
+            (
+                results["total_pnl"] < 0
+            ).mean() * 100
+    }
+
+
+summary_1 = summarize(
+    results_1,
+    period_1
+)
+
+summary_2 = summarize(
+    results_2,
+    period_2
+)
+
+
+# ============================================================
+# COMPARISON TABLE
+# ============================================================
+
+comparison = pd.DataFrame({
+
+    "Metric": [
+
+        "Period start",
+
+        "Period end",
+
+        "Trading days",
+
+        "Mean total P&L",
+
+        "Median total P&L",
+
+        "Std. dev. total P&L",
+
+        "5th percentile",
+
+        "95th percentile",
+
+        "Mean average trade",
+
+        "Median average trade",
+
+        "Mean TP/SL win rate",
+
+        "Profitable simulations",
+
+        "Profitable %",
+
+        "Losing simulations",
+
+        "Losing %"
+    ],
+
+    "First 5 Years": [
+
+        summary_1["Period start"],
+
+        summary_1["Period end"],
+
+        summary_1["Trading days"],
+
+        summary_1["Mean total P&L"],
+
+        summary_1["Median total P&L"],
+
+        summary_1["Std. dev. total P&L"],
+
+        summary_1["5th percentile"],
+
+        summary_1["95th percentile"],
+
+        summary_1["Mean average trade"],
+
+        summary_1["Median average trade"],
+
+        summary_1["Mean TP/SL win rate"],
+
+        summary_1["Profitable simulations"],
+
+        summary_1["Profitable %"],
+
+        summary_1["Losing simulations"],
+
+        summary_1["Losing %"]
+    ],
+
+    "Remaining Period": [
+
+        summary_2["Period start"],
+
+        summary_2["Period end"],
+
+        summary_2["Trading days"],
+
+        summary_2["Mean total P&L"],
+
+        summary_2["Median total P&L"],
+
+        summary_2["Std. dev. total P&L"],
+
+        summary_2["5th percentile"],
+
+        summary_2["95th percentile"],
+
+        summary_2["Mean average trade"],
+
+        summary_2["Median average trade"],
+
+        summary_2["Mean TP/SL win rate"],
+
+        summary_2["Profitable simulations"],
+
+        summary_2["Profitable %"],
+
+        summary_2["Losing simulations"],
+
+        summary_2["Losing %"]
+    ]
+})
+
+
+# ============================================================
+# SAVE
+# ============================================================
+
+comparison.to_csv(
+    OUTPUT_FILE,
+    index=False
+)
+
+
+# ============================================================
+# PRINT RESULTS
+# ============================================================
+
+print()
+print("==============================")
+print("RAW STRATEGY COMPARISON")
+print("==============================")
+
+print(
+    comparison.to_string(
+        index=False
+    )
+)
+
+print()
+print("==============================")
+print("SAVED")
+print("==============================")
+
+print(
+    OUTPUT_FILE
+)
+

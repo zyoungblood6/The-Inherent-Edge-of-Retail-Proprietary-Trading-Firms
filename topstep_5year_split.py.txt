@@ -1,0 +1,846 @@
+import pandas as pd
+import numpy as np
+import subprocess
+import sys
+import os
+import shutil
+import tempfile
+
+
+# ============================================================
+# TOPSTEP 50K — EXACT FIVE-YEAR SPLIT TEST
+#
+# Uses the EXACT validated engine:
+#
+#     topstep_random_10000.py
+#
+# No Topstep rules are rewritten here.
+# This script only:
+#
+# 1. Reads the existing clean trading days
+# 2. Finds the earliest clean date
+# 3. Splits exactly 5 years later
+# 4. Slices the exact existing 10,000 random paths
+# 5. Runs the validated Topstep engine separately
+#    on each historical period
+#
+# ============================================================
+
+
+ENGINE = "topstep_random_10000.py"
+
+PATH_FILE = "mnq_10000_random_paths.npy"
+DAY_FILE = "mnq_random_clean_days.csv"
+
+COMPARISON_FILE = "topstep_exact_5year_comparison.csv"
+
+
+# ============================================================
+# VERIFY REQUIRED FILES
+# ============================================================
+
+for file in [
+    ENGINE,
+    PATH_FILE,
+    DAY_FILE
+]:
+
+    if not os.path.exists(file):
+
+        print(
+            f"ERROR: Could not find {file}"
+        )
+
+        raise SystemExit
+
+
+# ============================================================
+# LOAD ORIGINAL DATA
+# ============================================================
+
+paths = np.load(
+    PATH_FILE
+)
+
+days = pd.read_csv(
+    DAY_FILE
+)
+
+days["date"] = pd.to_datetime(
+    days["date"]
+)
+
+days = (
+    days
+    .sort_values("date")
+    .reset_index(drop=True)
+)
+
+
+# ============================================================
+# VERIFY ORIGINAL DATA
+# ============================================================
+
+if paths.shape[0] != 10_000:
+
+    raise ValueError(
+        f"Expected 10,000 simulations, "
+        f"found {paths.shape[0]:,}"
+    )
+
+
+if paths.shape[1] != len(days):
+
+    raise ValueError(
+        "Random path columns do not match "
+        "clean trading-day count."
+    )
+
+
+# ============================================================
+# EXACT FIVE-YEAR SPLIT
+# ============================================================
+
+earliest_date = (
+    days["date"].min()
+)
+
+latest_date = (
+    days["date"].max()
+)
+
+split_date = (
+    earliest_date
+    + pd.DateOffset(years=5)
+)
+
+
+period_1_mask = (
+    days["date"] < split_date
+)
+
+period_2_mask = (
+    days["date"] >= split_date
+)
+
+
+period_1_days = (
+    days.loc[period_1_mask]
+    .copy()
+    .reset_index(drop=True)
+)
+
+period_2_days = (
+    days.loc[period_2_mask]
+    .copy()
+    .reset_index(drop=True)
+)
+
+
+period_1_indices = np.where(
+    period_1_mask.to_numpy()
+)[0]
+
+period_2_indices = np.where(
+    period_2_mask.to_numpy()
+)[0]
+
+
+period_1_paths = (
+    paths[:, period_1_indices]
+)
+
+period_2_paths = (
+    paths[:, period_2_indices]
+)
+
+
+# ============================================================
+# PRINT SPLIT INFORMATION
+# ============================================================
+
+print()
+print("==============================")
+print("TOPSTEP EXACT 5-YEAR SPLIT")
+print("==============================")
+
+print(
+    f"Earliest clean trading date: "
+    f"{earliest_date.date()}"
+)
+
+print(
+    f"Latest clean trading date: "
+    f"{latest_date.date()}"
+)
+
+print(
+    f"Exact five-year split date: "
+    f"{split_date.date()}"
+)
+
+print(
+    f"Total clean trading days: "
+    f"{len(days):,}"
+)
+
+print()
+
+print(
+    f"Period 1: "
+    f"{period_1_days['date'].min().date()} "
+    f"to "
+    f"{period_1_days['date'].max().date()}"
+)
+
+print(
+    f"Period 1 trading days: "
+    f"{len(period_1_days):,}"
+)
+
+print()
+
+print(
+    f"Period 2: "
+    f"{period_2_days['date'].min().date()} "
+    f"to "
+    f"{period_2_days['date'].max().date()}"
+)
+
+print(
+    f"Period 2 trading days: "
+    f"{len(period_2_days):,}"
+)
+
+
+# ============================================================
+# PERIOD CONFIGURATION
+# ============================================================
+
+periods = {
+
+    "first_5_years": {
+        "days": period_1_days,
+        "paths": period_1_paths
+    },
+
+    "second_5_years": {
+        "days": period_2_days,
+        "paths": period_2_paths
+    }
+
+}
+
+
+# ============================================================
+# RUN BOTH PERIODS
+# ============================================================
+
+summaries = {}
+
+
+with tempfile.TemporaryDirectory() as temp:
+
+    for period_name, data in periods.items():
+
+        period_days = data["days"]
+
+        period_paths = data["paths"]
+
+
+        print()
+        print()
+        print("==============================")
+        print(
+            f"RUNNING {period_name.upper()}"
+        )
+        print("==============================")
+
+
+        # ----------------------------------------------------
+        # VERIFY PERIOD DATA
+        # ----------------------------------------------------
+
+        if len(period_days) == 0:
+
+            raise ValueError(
+                f"{period_name}: "
+                f"no trading days found."
+            )
+
+
+        if (
+            period_paths.shape[1]
+            != len(period_days)
+        ):
+
+            raise ValueError(
+                f"{period_name}: "
+                f"path/day mismatch."
+            )
+
+
+        print(
+            f"Dates: "
+            f"{period_days['date'].min().date()} "
+            f"to "
+            f"{period_days['date'].max().date()}"
+        )
+
+        print(
+            f"Trading days: "
+            f"{len(period_days):,}"
+        )
+
+        print(
+            f"Random path shape: "
+            f"{period_paths.shape}"
+        )
+
+
+        # ----------------------------------------------------
+        # CREATE ISOLATED TEMP WORKSPACE
+        # ----------------------------------------------------
+
+        workdir = os.path.join(
+            temp,
+            period_name
+        )
+
+        os.makedirs(
+            workdir
+        )
+
+
+        # ----------------------------------------------------
+        # SAVE PERIOD INPUT FILES
+        # ----------------------------------------------------
+
+        np.save(
+            os.path.join(
+                workdir,
+                PATH_FILE
+            ),
+            period_paths
+        )
+
+
+        period_days.to_csv(
+            os.path.join(
+                workdir,
+                DAY_FILE
+            ),
+            index=False
+        )
+
+
+        # ----------------------------------------------------
+        # COPY EXACT VALIDATED ENGINE
+        # ----------------------------------------------------
+
+        shutil.copy(
+            ENGINE,
+            os.path.join(
+                workdir,
+                ENGINE
+            )
+        )
+
+
+        # ----------------------------------------------------
+        # RUN EXACT ENGINE
+        # ----------------------------------------------------
+
+        process = subprocess.run(
+            [
+                sys.executable,
+                ENGINE
+            ],
+            cwd=workdir,
+            capture_output=True,
+            text=True
+        )
+
+
+        print()
+        print(
+            process.stdout
+        )
+
+
+        if process.returncode != 0:
+
+            print(
+                process.stderr
+            )
+
+            raise RuntimeError(
+                f"{period_name} "
+                f"simulation failed."
+            )
+
+
+        # ----------------------------------------------------
+        # OUTPUT NAMES
+        # ----------------------------------------------------
+
+        result_output = (
+            f"topstep_{period_name}_results.csv"
+        )
+
+        account_output = (
+            f"topstep_{period_name}_account_log.csv"
+        )
+
+        mll_output = (
+            f"topstep_{period_name}_mll_audit.csv"
+        )
+
+
+        # ----------------------------------------------------
+        # COPY OUTPUTS BACK
+        # ----------------------------------------------------
+
+        shutil.copy(
+            os.path.join(
+                workdir,
+                "topstep_10000_results.csv"
+            ),
+            result_output
+        )
+
+
+        shutil.copy(
+            os.path.join(
+                workdir,
+                "topstep_account_log.csv"
+            ),
+            account_output
+        )
+
+
+        shutil.copy(
+            os.path.join(
+                workdir,
+                "topstep_mll_audit.csv"
+            ),
+            mll_output
+        )
+
+
+        # ----------------------------------------------------
+        # READ RESULTS
+        # ----------------------------------------------------
+
+        result_df = pd.read_csv(
+            result_output
+        )
+
+
+        # ----------------------------------------------------
+        # BUILD SUMMARY
+        # ----------------------------------------------------
+
+        summaries[period_name] = {
+
+            "Period start":
+                period_days[
+                    "date"
+                ].min().date(),
+
+            "Period end":
+                period_days[
+                    "date"
+                ].max().date(),
+
+            "Trading days":
+                len(period_days),
+
+            "Mean accounts used":
+                result_df[
+                    "accounts_used"
+                ].mean(),
+
+            "Median accounts used":
+                result_df[
+                    "accounts_used"
+                ].median(),
+
+            "Mean accounts blown":
+                result_df[
+                    "accounts_blown"
+                ].mean(),
+
+            "Mean Combine passes":
+                result_df[
+                    "combine_passes"
+                ].mean(),
+
+            "Mean XFA failures":
+                result_df[
+                    "xfa_failures"
+                ].mean(),
+
+            "Mean payouts":
+                result_df[
+                    "payouts"
+                ].mean(),
+
+            "Mean trader payouts":
+                result_df[
+                    "trader_payouts"
+                ].mean(),
+
+            "Median trader payouts":
+                result_df[
+                    "trader_payouts"
+                ].median(),
+
+            "Mean account costs":
+                result_df[
+                    "account_costs"
+                ].mean(),
+
+            "Mean ACTUAL net P&L":
+                result_df[
+                    "actual_net_pnl"
+                ].mean(),
+
+            "Median ACTUAL net P&L":
+                result_df[
+                    "actual_net_pnl"
+                ].median(),
+
+            "Std. dev. ACTUAL net P&L":
+                result_df[
+                    "actual_net_pnl"
+                ].std(),
+
+            "5th percentile ACTUAL net P&L":
+                result_df[
+                    "actual_net_pnl"
+                ].quantile(0.05),
+
+            "95th percentile ACTUAL net P&L":
+                result_df[
+                    "actual_net_pnl"
+                ].quantile(0.95),
+
+            "Profitable simulations":
+                (
+                    result_df[
+                        "actual_net_pnl"
+                    ] > 0
+                ).sum(),
+
+            "Profitable %":
+                (
+                    result_df[
+                        "actual_net_pnl"
+                    ] > 0
+                ).mean() * 100,
+
+            "Losing simulations":
+                (
+                    result_df[
+                        "actual_net_pnl"
+                    ] < 0
+                ).sum(),
+
+            "Losing %":
+                (
+                    result_df[
+                        "actual_net_pnl"
+                    ] < 0
+                ).mean() * 100
+        }
+
+
+# ============================================================
+# BUILD SIDE-BY-SIDE COMPARISON
+# ============================================================
+
+comparison = pd.DataFrame({
+
+    "Metric": [
+
+        "Period start",
+        "Period end",
+        "Trading days",
+
+        "Mean accounts used",
+        "Median accounts used",
+        "Mean accounts blown",
+
+        "Mean Combine passes",
+        "Mean XFA failures",
+        "Mean payouts",
+
+        "Mean trader payouts",
+        "Median trader payouts",
+
+        "Mean account costs",
+
+        "Mean ACTUAL net P&L",
+        "Median ACTUAL net P&L",
+
+        "Std. dev. ACTUAL net P&L",
+
+        "5th percentile ACTUAL net P&L",
+        "95th percentile ACTUAL net P&L",
+
+        "Profitable simulations",
+        "Profitable %",
+
+        "Losing simulations",
+        "Losing %"
+    ],
+
+
+    "First 5 Years": [
+
+        summaries[
+            "first_5_years"
+        ]["Period start"],
+
+        summaries[
+            "first_5_years"
+        ]["Period end"],
+
+        summaries[
+            "first_5_years"
+        ]["Trading days"],
+
+        summaries[
+            "first_5_years"
+        ]["Mean accounts used"],
+
+        summaries[
+            "first_5_years"
+        ]["Median accounts used"],
+
+        summaries[
+            "first_5_years"
+        ]["Mean accounts blown"],
+
+        summaries[
+            "first_5_years"
+        ]["Mean Combine passes"],
+
+        summaries[
+            "first_5_years"
+        ]["Mean XFA failures"],
+
+        summaries[
+            "first_5_years"
+        ]["Mean payouts"],
+
+        summaries[
+            "first_5_years"
+        ]["Mean trader payouts"],
+
+        summaries[
+            "first_5_years"
+        ]["Median trader payouts"],
+
+        summaries[
+            "first_5_years"
+        ]["Mean account costs"],
+
+        summaries[
+            "first_5_years"
+        ]["Mean ACTUAL net P&L"],
+
+        summaries[
+            "first_5_years"
+        ]["Median ACTUAL net P&L"],
+
+        summaries[
+            "first_5_years"
+        ][
+            "Std. dev. ACTUAL net P&L"
+        ],
+
+        summaries[
+            "first_5_years"
+        ][
+            "5th percentile ACTUAL net P&L"
+        ],
+
+        summaries[
+            "first_5_years"
+        ][
+            "95th percentile ACTUAL net P&L"
+        ],
+
+        summaries[
+            "first_5_years"
+        ]["Profitable simulations"],
+
+        summaries[
+            "first_5_years"
+        ]["Profitable %"],
+
+        summaries[
+            "first_5_years"
+        ]["Losing simulations"],
+
+        summaries[
+            "first_5_years"
+        ]["Losing %"]
+    ],
+
+
+    "Second 5 Years": [
+
+        summaries[
+            "second_5_years"
+        ]["Period start"],
+
+        summaries[
+            "second_5_years"
+        ]["Period end"],
+
+        summaries[
+            "second_5_years"
+        ]["Trading days"],
+
+        summaries[
+            "second_5_years"
+        ]["Mean accounts used"],
+
+        summaries[
+            "second_5_years"
+        ]["Median accounts used"],
+
+        summaries[
+            "second_5_years"
+        ]["Mean accounts blown"],
+
+        summaries[
+            "second_5_years"
+        ]["Mean Combine passes"],
+
+        summaries[
+            "second_5_years"
+        ]["Mean XFA failures"],
+
+        summaries[
+            "second_5_years"
+        ]["Mean payouts"],
+
+        summaries[
+            "second_5_years"
+        ]["Mean trader payouts"],
+
+        summaries[
+            "second_5_years"
+        ]["Median trader payouts"],
+
+        summaries[
+            "second_5_years"
+        ]["Mean account costs"],
+
+        summaries[
+            "second_5_years"
+        ]["Mean ACTUAL net P&L"],
+
+        summaries[
+            "second_5_years"
+        ]["Median ACTUAL net P&L"],
+
+        summaries[
+            "second_5_years"
+        ][
+            "Std. dev. ACTUAL net P&L"
+        ],
+
+        summaries[
+            "second_5_years"
+        ][
+            "5th percentile ACTUAL net P&L"
+        ],
+
+        summaries[
+            "second_5_years"
+        ][
+            "95th percentile ACTUAL net P&L"
+        ],
+
+        summaries[
+            "second_5_years"
+        ]["Profitable simulations"],
+
+        summaries[
+            "second_5_years"
+        ]["Profitable %"],
+
+        summaries[
+            "second_5_years"
+        ]["Losing simulations"],
+
+        summaries[
+            "second_5_years"
+        ]["Losing %"]
+    ]
+})
+
+
+# ============================================================
+# SAVE COMPARISON
+# ============================================================
+
+comparison.to_csv(
+    COMPARISON_FILE,
+    index=False
+)
+
+
+# ============================================================
+# PRINT FINAL COMPARISON
+# ============================================================
+
+print()
+print()
+print("==============================")
+print("TOPSTEP EXACT 5-YEAR COMPARISON")
+print("==============================")
+
+print(
+    comparison.to_string(
+        index=False
+    )
+)
+
+print()
+print("==============================")
+print("SAVED FILES")
+print("==============================")
+
+print(
+    "topstep_first_5_years_results.csv"
+)
+
+print(
+    "topstep_first_5_years_account_log.csv"
+)
+
+print(
+    "topstep_first_5_years_mll_audit.csv"
+)
+
+print(
+    "topstep_second_5_years_results.csv"
+)
+
+print(
+    "topstep_second_5_years_account_log.csv"
+)
+
+print(
+    "topstep_second_5_years_mll_audit.csv"
+)
+
+print(
+    COMPARISON_FILE
+)
