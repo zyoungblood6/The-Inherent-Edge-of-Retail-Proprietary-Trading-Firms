@@ -1,0 +1,844 @@
+import pandas as pd
+import numpy as np
+import os
+
+
+# ============================================================
+# TOPSTEP 50K — 10,000 RANDOM NULL STRATEGIES
+# ============================================================
+
+PATH_FILE = "mnq_10000_random_paths.npy"
+DAY_FILE = "mnq_random_clean_days.csv"
+
+OUTPUT_FILE = "topstep_10000_results.csv"
+ACCOUNT_LOG_FILE = "topstep_account_log.csv"
+MLL_AUDIT_FILE = "topstep_mll_audit.csv"
+
+NUM_SIMULATIONS = 10_000
+
+
+# ============================================================
+# COMBINE
+# ============================================================
+
+COMBINE_STARTING_BALANCE = 50_000.00
+COMBINE_PROFIT_TARGET = 3_000.00
+COMBINE_MLL_DISTANCE = 2_000.00
+COMBINE_DLL = 1_000.00
+
+
+# ============================================================
+# XFA
+# ============================================================
+
+XFA_STARTING_BALANCE = 0.00
+XFA_MLL_DISTANCE = 2_000.00
+XFA_DLL = 1_000.00
+
+
+# ============================================================
+# PAYOUT RULES
+# ============================================================
+
+WINNING_DAY_AMOUNT = 150.00
+WINNING_DAYS_REQUIRED = 5
+PAYOUT_CAP = 4_000.00
+TRADER_SPLIT = 0.90
+
+
+# ============================================================
+# COSTS
+# ============================================================
+
+MONTHLY_COST = 85.00
+RESET_COST = 85.00
+
+
+# ============================================================
+# LOAD DATA
+# ============================================================
+
+if not os.path.exists(PATH_FILE):
+    print(f"ERROR: {PATH_FILE} not found.")
+    raise SystemExit
+
+if not os.path.exists(DAY_FILE):
+    print(f"ERROR: {DAY_FILE} not found.")
+    raise SystemExit
+
+
+paths = np.load(PATH_FILE)
+clean_days = pd.read_csv(DAY_FILE)
+
+
+# ============================================================
+# VERIFY DATA
+# ============================================================
+
+print("==============================")
+print("VERIFYING RANDOM PATH DATA")
+print("==============================")
+
+print(f"Random path shape: {paths.shape}")
+print(f"Clean trading days: {len(clean_days):,}")
+
+
+if paths.shape[0] != NUM_SIMULATIONS:
+    raise ValueError(
+        f"Expected {NUM_SIMULATIONS:,} simulations "
+        f"but found {paths.shape[0]:,}."
+    )
+
+
+if paths.shape[1] != len(clean_days):
+    raise ValueError(
+        "Number of trades in random paths does not "
+        "match number of clean trading days."
+    )
+
+
+# ============================================================
+# DAILY P&L
+# ============================================================
+
+long_pnl = clean_days["long_pnl"].to_numpy(dtype=float)
+short_pnl = clean_days["short_pnl"].to_numpy(dtype=float)
+dates = clean_days["date"].to_numpy()
+
+
+# ============================================================
+# COMBINE TARGET
+# ============================================================
+
+def combine_target(best_day):
+
+    if best_day <= 0:
+        return COMBINE_PROFIT_TARGET
+
+    return max(
+        COMBINE_PROFIT_TARGET,
+        best_day / 0.50
+    )
+
+
+# ============================================================
+# RUN ONE SIMULATION
+# ============================================================
+
+def run_simulation(sim_index):
+
+    directions = paths[sim_index]
+
+    daily_pnl = np.where(
+        directions == 1,
+        long_pnl,
+        short_pnl
+    )
+
+    # --------------------------------------------------------
+    # ACCOUNT STATE
+    # --------------------------------------------------------
+
+    account_number = 1
+    phase = "COMBINE"
+
+    account_costs = MONTHLY_COST
+
+    accounts_blown = 0
+    combine_passes = 0
+    xfa_failures = 0
+    payouts = 0
+    payout_total = 0.0
+
+    account_events = []
+    mll_audit_events = []
+
+    # --------------------------------------------------------
+    # COMBINE STATE
+    # --------------------------------------------------------
+
+    balance = COMBINE_STARTING_BALANCE
+
+    combine_mll = (
+        COMBINE_STARTING_BALANCE
+        - COMBINE_MLL_DISTANCE
+    )
+
+    combine_best_day = 0.0
+
+    # --------------------------------------------------------
+    # XFA STATE
+    # --------------------------------------------------------
+
+    xfa_balance = XFA_STARTING_BALANCE
+    xfa_mll = -XFA_MLL_DISTANCE
+
+    xfa_winning_days = 0
+    xfa_cycle_profit = 0.0
+    xfa_best_day = 0.0
+
+    # --------------------------------------------------------
+    # START NEW COMBINE
+    # --------------------------------------------------------
+
+    def start_new_combine(
+        reason,
+        day_index,
+        is_reset=False
+    ):
+
+        nonlocal account_number
+        nonlocal phase
+        nonlocal account_costs
+        nonlocal balance
+        nonlocal combine_mll
+        nonlocal combine_best_day
+
+        account_number += 1
+
+        phase = "COMBINE"
+
+        balance = COMBINE_STARTING_BALANCE
+
+        combine_mll = (
+            COMBINE_STARTING_BALANCE
+            - COMBINE_MLL_DISTANCE
+        )
+
+        combine_best_day = 0.0
+
+        if is_reset:
+            account_costs += RESET_COST
+        else:
+            account_costs += MONTHLY_COST
+
+        account_events.append({
+            "simulation": sim_index + 1,
+            "account": account_number,
+            "event": "NEW_COMBINE",
+            "date": dates[day_index],
+            "reason": reason,
+            "balance": balance,
+            "mll": combine_mll
+        })
+
+        mll_audit_events.append({
+            "simulation": sim_index + 1,
+            "account": account_number,
+            "date": dates[day_index],
+            "phase": "COMBINE",
+            "event": "NEW_COMBINE",
+            "balance_before": np.nan,
+            "balance_after": balance,
+            "mll_before": np.nan,
+            "mll_after": combine_mll
+        })
+
+    # ========================================================
+    # PROCESS TRADING DAYS
+    # ========================================================
+
+    for day_index, pnl in enumerate(daily_pnl):
+
+        pnl = float(pnl)
+        date = dates[day_index]
+
+        # ====================================================
+        # COMBINE
+        # ====================================================
+
+        if phase == "COMBINE":
+
+            old_balance = balance
+            old_mll = combine_mll
+
+            new_balance = balance + pnl
+
+            # ------------------------------------------------
+            # DAILY LOSS LIMIT
+            # ------------------------------------------------
+
+            if pnl <= -COMBINE_DLL:
+
+                accounts_blown += 1
+
+                account_events.append({
+                    "simulation": sim_index + 1,
+                    "account": account_number,
+                    "event": "COMBINE_FAIL_DLL",
+                    "date": date,
+                    "reason": "Daily Loss Limit",
+                    "balance": new_balance,
+                    "mll": combine_mll
+                })
+
+                mll_audit_events.append({
+                    "simulation": sim_index + 1,
+                    "account": account_number,
+                    "date": date,
+                    "phase": "COMBINE",
+                    "event": "COMBINE_FAIL_DLL",
+                    "balance_before": old_balance,
+                    "balance_after": new_balance,
+                    "mll_before": old_mll,
+                    "mll_after": old_mll
+                })
+
+                start_new_combine(
+                    "Combine DLL breach",
+                    day_index,
+                    is_reset=True
+                )
+
+                continue
+
+            # ------------------------------------------------
+            # MLL
+            # ------------------------------------------------
+
+            if new_balance <= combine_mll:
+
+                accounts_blown += 1
+
+                account_events.append({
+                    "simulation": sim_index + 1,
+                    "account": account_number,
+                    "event": "COMBINE_FAIL_MLL",
+                    "date": date,
+                    "reason": "Maximum Loss Limit",
+                    "balance": new_balance,
+                    "mll": combine_mll
+                })
+
+                mll_audit_events.append({
+                    "simulation": sim_index + 1,
+                    "account": account_number,
+                    "date": date,
+                    "phase": "COMBINE",
+                    "event": "COMBINE_FAIL_MLL",
+                    "balance_before": old_balance,
+                    "balance_after": new_balance,
+                    "mll_before": old_mll,
+                    "mll_after": old_mll
+                })
+
+                start_new_combine(
+                    "Combine MLL breach",
+                    day_index,
+                    is_reset=True
+                )
+
+                continue
+
+            # ------------------------------------------------
+            # ACCEPT DAY
+            # ------------------------------------------------
+
+            balance = new_balance
+
+            if pnl > combine_best_day:
+                combine_best_day = pnl
+
+            # ------------------------------------------------
+            # EOD TRAILING MLL
+            # ------------------------------------------------
+
+            new_mll = (
+                balance
+                - COMBINE_MLL_DISTANCE
+            )
+
+            if new_mll > combine_mll:
+                combine_mll = new_mll
+
+            # ------------------------------------------------
+            # LOG COMPLETE MLL STATE
+            # ------------------------------------------------
+
+            mll_audit_events.append({
+                "simulation": sim_index + 1,
+                "account": account_number,
+                "date": date,
+                "phase": "COMBINE",
+                "event": "TRADING_DAY",
+                "balance_before": old_balance,
+                "balance_after": balance,
+                "mll_before": old_mll,
+                "mll_after": combine_mll
+            })
+
+            # ------------------------------------------------
+            # PROFIT / CONSISTENCY
+            # ------------------------------------------------
+
+            total_profit = (
+                balance
+                - COMBINE_STARTING_BALANCE
+            )
+
+            required_profit = combine_target(
+                combine_best_day
+            )
+
+            if (
+                total_profit >= required_profit
+                and combine_best_day
+                <= required_profit * 0.50
+            ):
+
+                phase = "XFA"
+
+                combine_passes += 1
+
+                xfa_balance = 0.0
+                xfa_mll = -XFA_MLL_DISTANCE
+                xfa_winning_days = 0
+                xfa_cycle_profit = 0.0
+                xfa_best_day = 0.0
+
+                account_events.append({
+                    "simulation": sim_index + 1,
+                    "account": account_number,
+                    "event": "COMBINE_PASS",
+                    "date": date,
+                    "reason": "Profit target + consistency",
+                    "combine_balance": balance,
+                    "combine_mll": combine_mll,
+                    "phase": "XFA",
+                    "xfa_balance": xfa_balance,
+                    "xfa_mll": xfa_mll
+                })
+
+                mll_audit_events.append({
+                    "simulation": sim_index + 1,
+                    "account": account_number,
+                    "date": date,
+                    "phase": "XFA",
+                    "event": "COMBINE_PASS",
+                    "balance_before": np.nan,
+                    "balance_after": xfa_balance,
+                    "mll_before": np.nan,
+                    "mll_after": xfa_mll
+                })
+
+        # ====================================================
+        # XFA
+        # ====================================================
+
+        elif phase == "XFA":
+
+            old_balance = xfa_balance
+            old_mll = xfa_mll
+
+            new_xfa_balance = (
+                xfa_balance + pnl
+            )
+
+            # ------------------------------------------------
+            # DAILY LOSS LIMIT
+            # ------------------------------------------------
+
+            if pnl <= -XFA_DLL:
+
+                xfa_failures += 1
+                accounts_blown += 1
+
+                account_events.append({
+                    "simulation": sim_index + 1,
+                    "account": account_number,
+                    "event": "XFA_FAIL_DLL",
+                    "date": date,
+                    "reason": "Daily Loss Limit",
+                    "balance": new_xfa_balance,
+                    "mll": xfa_mll
+                })
+
+                mll_audit_events.append({
+                    "simulation": sim_index + 1,
+                    "account": account_number,
+                    "date": date,
+                    "phase": "XFA",
+                    "event": "XFA_FAIL_DLL",
+                    "balance_before": old_balance,
+                    "balance_after": new_xfa_balance,
+                    "mll_before": old_mll,
+                    "mll_after": old_mll
+                })
+
+                start_new_combine(
+                    "XFA DLL breach",
+                    day_index,
+                    is_reset=False
+                )
+
+                continue
+
+            # ------------------------------------------------
+            # MLL
+            # ------------------------------------------------
+
+            if new_xfa_balance <= xfa_mll:
+
+                xfa_failures += 1
+                accounts_blown += 1
+
+                account_events.append({
+                    "simulation": sim_index + 1,
+                    "account": account_number,
+                    "event": "XFA_FAIL_MLL",
+                    "date": date,
+                    "reason": "Maximum Loss Limit",
+                    "balance": new_xfa_balance,
+                    "mll": xfa_mll
+                })
+
+                mll_audit_events.append({
+                    "simulation": sim_index + 1,
+                    "account": account_number,
+                    "date": date,
+                    "phase": "XFA",
+                    "event": "XFA_FAIL_MLL",
+                    "balance_before": old_balance,
+                    "balance_after": new_xfa_balance,
+                    "mll_before": old_mll,
+                    "mll_after": old_mll
+                })
+
+                start_new_combine(
+                    "XFA MLL breach",
+                    day_index,
+                    is_reset=False
+                )
+
+                continue
+
+            # ------------------------------------------------
+            # ACCEPT DAY
+            # ------------------------------------------------
+
+            xfa_balance = new_xfa_balance
+
+            xfa_cycle_profit += pnl
+
+            if pnl >= WINNING_DAY_AMOUNT:
+                xfa_winning_days += 1
+
+            if pnl > xfa_best_day:
+                xfa_best_day = pnl
+
+            # ------------------------------------------------
+            # EOD TRAILING MLL
+            # ------------------------------------------------
+
+            new_xfa_mll = (
+                xfa_balance
+                - XFA_MLL_DISTANCE
+            )
+
+            if new_xfa_mll > xfa_mll:
+                xfa_mll = new_xfa_mll
+
+            # ------------------------------------------------
+            # LOG COMPLETE MLL STATE
+            # ------------------------------------------------
+
+            mll_audit_events.append({
+                "simulation": sim_index + 1,
+                "account": account_number,
+                "date": date,
+                "phase": "XFA",
+                "event": "TRADING_DAY",
+                "balance_before": old_balance,
+                "balance_after": xfa_balance,
+                "mll_before": old_mll,
+                "mll_after": xfa_mll
+            })
+
+            # ------------------------------------------------
+            # PAYOUT ELIGIBILITY
+            # ------------------------------------------------
+
+            if xfa_winning_days >= WINNING_DAYS_REQUIRED:
+
+                first_payout = payouts == 0
+
+                positive_since_last = (
+                    xfa_cycle_profit > 0
+                )
+
+                if (
+                    first_payout
+                    or positive_since_last
+                ):
+
+                    eligible_amount = max(
+                        0.0,
+                        xfa_balance * 0.50
+                    )
+
+                    payout = min(
+                        eligible_amount,
+                        PAYOUT_CAP
+                    )
+
+                    if payout >= 125.0:
+
+                        winning_days_before_payout = (
+                            xfa_winning_days
+                        )
+
+                        balance_before_payout = (
+                            xfa_balance
+                        )
+
+                        mll_before_payout = (
+                            xfa_mll
+                        )
+
+                        trader_payout = (
+                            payout * TRADER_SPLIT
+                        )
+
+                        payout_total += trader_payout
+                        payouts += 1
+
+                        xfa_balance -= payout
+
+                        # ------------------------------------------------
+                        # PAYOUT RESET
+                        # ------------------------------------------------
+
+                        xfa_mll = 0.0
+                        xfa_winning_days = 0
+                        xfa_cycle_profit = 0.0
+                        xfa_best_day = 0.0
+
+                        account_events.append({
+                            "simulation": sim_index + 1,
+                            "account": account_number,
+                            "event": "PAYOUT",
+                            "date": date,
+                            "phase": "XFA",
+                            "winning_days_before_payout":
+                                winning_days_before_payout,
+                            "balance_before_payout":
+                                balance_before_payout,
+                            "gross_payout": payout,
+                            "trader_payout": trader_payout,
+                            "balance_after_payout":
+                                xfa_balance,
+                            "mll_after_payout": xfa_mll
+                        })
+
+                        mll_audit_events.append({
+                            "simulation": sim_index + 1,
+                            "account": account_number,
+                            "date": date,
+                            "phase": "XFA",
+                            "event": "PAYOUT",
+                            "balance_before":
+                                balance_before_payout,
+                            "balance_after":
+                                xfa_balance,
+                            "mll_before":
+                                mll_before_payout,
+                            "mll_after":
+                                xfa_mll
+                        })
+
+    # ========================================================
+    # FINAL ACTUAL P&L
+    # ========================================================
+
+    actual_net_pnl = (
+        payout_total
+        - account_costs
+    )
+
+    # ========================================================
+    # RESULT
+    # ========================================================
+
+    result = {
+        "simulation": sim_index + 1,
+        "trading_days": len(daily_pnl),
+        "accounts_used": account_number,
+        "accounts_blown": accounts_blown,
+        "combine_passes": combine_passes,
+        "xfa_failures": xfa_failures,
+        "payouts": payouts,
+        "trader_payouts": payout_total,
+        "account_costs": account_costs,
+        "actual_net_pnl": actual_net_pnl
+    }
+
+    return result, account_events, mll_audit_events
+
+
+# ============================================================
+# RUN ALL SIMULATIONS
+# ============================================================
+
+print()
+print("==============================")
+print("RUNNING TOPSTEP SIMULATIONS")
+print("==============================")
+
+
+results = []
+all_events = []
+all_mll_audit_events = []
+
+
+for sim_index in range(NUM_SIMULATIONS):
+
+    result, events, mll_events = run_simulation(
+        sim_index
+    )
+
+    results.append(result)
+    all_events.extend(events)
+    all_mll_audit_events.extend(mll_events)
+
+    if (sim_index + 1) % 1000 == 0:
+        print(
+            f"Completed "
+            f"{sim_index + 1:,} / "
+            f"{NUM_SIMULATIONS:,}"
+        )
+
+
+# ============================================================
+# DATAFRAMES
+# ============================================================
+
+results_df = pd.DataFrame(results)
+events_df = pd.DataFrame(all_events)
+mll_audit_df = pd.DataFrame(all_mll_audit_events)
+
+
+# ============================================================
+# SAVE
+# ============================================================
+
+results_df.to_csv(
+    OUTPUT_FILE,
+    index=False
+)
+
+events_df.to_csv(
+    ACCOUNT_LOG_FILE,
+    index=False
+)
+
+mll_audit_df.to_csv(
+    MLL_AUDIT_FILE,
+    index=False
+)
+
+
+# ============================================================
+# SUMMARY
+# ============================================================
+
+print()
+print("==============================")
+print("TOPSTEP 10,000 SIMULATION RESULTS")
+print("==============================")
+
+print(
+    f"Simulations: "
+    f"{len(results_df):,}"
+)
+
+print(
+    f"Mean accounts used: "
+    f"{results_df.accounts_used.mean():.2f}"
+)
+
+print(
+    f"Median accounts used: "
+    f"{results_df.accounts_used.median():.0f}"
+)
+
+print(
+    f"Mean accounts blown: "
+    f"{results_df.accounts_blown.mean():.2f}"
+)
+
+print(
+    f"Mean Combine passes: "
+    f"{results_df.combine_passes.mean():.2f}"
+)
+
+print(
+    f"Mean XFA failures: "
+    f"{results_df.xfa_failures.mean():.2f}"
+)
+
+print(
+    f"Mean payouts: "
+    f"{results_df.payouts.mean():.2f}"
+)
+
+print(
+    f"Mean trader payouts: "
+    f"${results_df.trader_payouts.mean():,.2f}"
+)
+
+print(
+    f"Median trader payouts: "
+    f"${results_df.trader_payouts.median():,.2f}"
+)
+
+print(
+    f"Mean account costs: "
+    f"${results_df.account_costs.mean():,.2f}"
+)
+
+print(
+    f"Mean ACTUAL net P&L: "
+    f"${results_df.actual_net_pnl.mean():,.2f}"
+)
+
+print(
+    f"Median ACTUAL net P&L: "
+    f"${results_df.actual_net_pnl.median():,.2f}"
+)
+
+print(
+    f"Std. dev. ACTUAL net P&L: "
+    f"${results_df.actual_net_pnl.std():,.2f}"
+)
+
+print(
+    f"5th percentile ACTUAL net P&L: "
+    f"${results_df.actual_net_pnl.quantile(.05):,.2f}"
+)
+
+print(
+    f"95th percentile ACTUAL net P&L: "
+    f"${results_df.actual_net_pnl.quantile(.95):,.2f}"
+)
+
+print(
+    f"Profitable simulations: "
+    f"{(results_df.actual_net_pnl > 0).sum():,}"
+    f" ("
+    f"{(results_df.actual_net_pnl > 0).mean() * 100:.2f}%"
+    f")"
+)
+
+print(
+    f"Losing simulations: "
+    f"{(results_df.actual_net_pnl < 0).sum():,}"
+    f" ("
+    f"{(results_df.actual_net_pnl < 0).mean() * 100:.2f}%"
+    f")"
+)
+
+print()
+print("Saved:")
+print(OUTPUT_FILE)
+print(ACCOUNT_LOG_FILE)
+print(MLL_AUDIT_FILE)

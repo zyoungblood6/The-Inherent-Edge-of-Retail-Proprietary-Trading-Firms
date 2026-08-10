@@ -1,0 +1,410 @@
+import pandas as pd
+import numpy as np
+import subprocess
+import sys
+import os
+import shutil
+import tempfile
+import re
+
+
+# ============================================================
+# TOPSTEP 50K — 5-YEAR SPLIT TEST
+#
+# Uses the EXACT existing validated Topstep engine:
+# topstep_random_10000.py
+#
+# Only the historical data window is changed.
+# ============================================================
+
+
+ENGINE = "topstep_random_10000.py"
+
+PATH_FILE = "mnq_10000_random_paths.npy"
+DAY_FILE = "mnq_random_clean_days.csv"
+
+
+# ============================================================
+# VERIFY FILES
+# ============================================================
+
+for file in [ENGINE, PATH_FILE, DAY_FILE]:
+
+    if not os.path.exists(file):
+
+        print(f"ERROR: Could not find {file}")
+
+        raise SystemExit
+
+
+# ============================================================
+# LOAD ORIGINAL DATA
+# ============================================================
+
+paths = np.load(PATH_FILE)
+
+days = pd.read_csv(DAY_FILE)
+
+days["date"] = pd.to_datetime(days["date"])
+
+
+print()
+print("==============================")
+print("TOPSTEP 5-YEAR SPLIT TEST")
+print("==============================")
+
+print(
+    f"Total clean trading days: "
+    f"{len(days):,}"
+)
+
+print(
+    f"Random paths: "
+    f"{paths.shape}"
+)
+
+
+# ============================================================
+# DEFINE PERIODS
+# ============================================================
+
+periods = {
+
+    "2016_2020": (
+        "2016-01-01",
+        "2020-12-31"
+    ),
+
+    "2021_2025": (
+        "2021-01-01",
+        "2025-12-31"
+    )
+
+}
+
+
+# ============================================================
+# TEMPORARY WORKSPACE
+# ============================================================
+
+with tempfile.TemporaryDirectory() as temp:
+
+    original_dir = os.getcwd()
+
+    results = {}
+
+
+    # ========================================================
+    # RUN EACH PERIOD
+    # ========================================================
+
+    for period_name, (start, end) in periods.items():
+
+        print()
+        print("==============================")
+        print(f"PERIOD: {period_name}")
+        print("==============================")
+
+
+        # ----------------------------------------------------
+        # FILTER DAYS
+        # ----------------------------------------------------
+
+        mask = (
+            (days["date"] >= start)
+            &
+            (days["date"] <= end)
+        )
+
+        period_days = days.loc[mask].copy()
+
+        period_days = (
+            period_days
+            .reset_index(drop=True)
+        )
+
+
+        print(
+            f"Trading days: "
+            f"{len(period_days):,}"
+        )
+
+
+        if len(period_days) == 0:
+
+            print("ERROR: No trading days found.")
+
+            raise SystemExit
+
+
+        # ----------------------------------------------------
+        # FIND ORIGINAL DAY INDICES
+        # ----------------------------------------------------
+
+        original_indices = days.index[mask].to_numpy()
+
+
+        # ----------------------------------------------------
+        # SLICE EXACT SAME RANDOM PATHS
+        # ----------------------------------------------------
+
+        period_paths = (
+            paths[:, original_indices]
+        )
+
+
+        print(
+            f"Random path shape: "
+            f"{period_paths.shape}"
+        )
+
+
+        # ----------------------------------------------------
+        # CREATE TEMPORARY DIRECTORY
+        # ----------------------------------------------------
+
+        workdir = os.path.join(
+            temp,
+            period_name
+        )
+
+        os.makedirs(workdir)
+
+
+        # ----------------------------------------------------
+        # SAVE PERIOD DATA
+        # ----------------------------------------------------
+
+        temp_path_file = os.path.join(
+            workdir,
+            PATH_FILE
+        )
+
+        temp_day_file = os.path.join(
+            workdir,
+            DAY_FILE
+        )
+
+        np.save(
+            temp_path_file,
+            period_paths
+        )
+
+        period_days.to_csv(
+            temp_day_file,
+            index=False
+        )
+
+
+        # ----------------------------------------------------
+        # COPY ENGINE
+        # ----------------------------------------------------
+
+        temp_engine = os.path.join(
+            workdir,
+            ENGINE
+        )
+
+        shutil.copy(
+            ENGINE,
+            temp_engine
+        )
+
+
+        # ----------------------------------------------------
+        # RUN EXACT ENGINE
+        # ----------------------------------------------------
+
+        process = subprocess.run(
+            [
+                sys.executable,
+                ENGINE
+            ],
+            cwd=workdir,
+            capture_output=True,
+            text=True
+        )
+
+
+        print(process.stdout)
+
+
+        if process.returncode != 0:
+
+            print(process.stderr)
+
+            print(
+                f"ERROR: {period_name} simulation failed."
+            )
+
+            raise SystemExit
+
+
+        # ----------------------------------------------------
+        # COPY OUTPUT FILES
+        # ----------------------------------------------------
+
+        output_map = {
+
+            "topstep_10000_results.csv":
+                f"topstep_{period_name}_results.csv",
+
+            "topstep_account_log.csv":
+                f"topstep_{period_name}_account_log.csv",
+
+            "topstep_mll_audit.csv":
+                f"topstep_{period_name}_mll_audit.csv"
+
+        }
+
+
+        for source, destination in output_map.items():
+
+            shutil.copy(
+                os.path.join(workdir, source),
+                destination
+            )
+
+
+        # ----------------------------------------------------
+        # READ RESULTS
+        # ----------------------------------------------------
+
+        result_file = (
+            f"topstep_{period_name}_results.csv"
+        )
+
+        result_df = pd.read_csv(
+            result_file
+        )
+
+
+        # ----------------------------------------------------
+        # STORE SUMMARY
+        # ----------------------------------------------------
+
+        results[period_name] = {
+
+            "Trading days":
+                len(period_days),
+
+            "Mean accounts used":
+                result_df.accounts_used.mean(),
+
+            "Median accounts used":
+                result_df.accounts_used.median(),
+
+            "Mean accounts blown":
+                result_df.accounts_blown.mean(),
+
+            "Mean Combine passes":
+                result_df.combine_passes.mean(),
+
+            "Mean XFA failures":
+                result_df.xfa_failures.mean(),
+
+            "Mean payouts":
+                result_df.payouts.mean(),
+
+            "Mean trader payouts":
+                result_df.trader_payouts.mean(),
+
+            "Median trader payouts":
+                result_df.trader_payouts.median(),
+
+            "Mean account costs":
+                result_df.account_costs.mean(),
+
+            "Mean ACTUAL net P&L":
+                result_df.actual_net_pnl.mean(),
+
+            "Median ACTUAL net P&L":
+                result_df.actual_net_pnl.median(),
+
+            "Std. dev. ACTUAL net P&L":
+                result_df.actual_net_pnl.std(),
+
+            "5th percentile ACTUAL net P&L":
+                result_df.actual_net_pnl.quantile(0.05),
+
+            "95th percentile ACTUAL net P&L":
+                result_df.actual_net_pnl.quantile(0.95),
+
+            "Profitable simulations":
+                (result_df.actual_net_pnl > 0).sum(),
+
+            "Profitable %":
+                (result_df.actual_net_pnl > 0).mean() * 100,
+
+            "Losing simulations":
+                (result_df.actual_net_pnl < 0).sum(),
+
+            "Losing %":
+                (result_df.actual_net_pnl < 0).mean() * 100
+
+        }
+
+
+# ============================================================
+# COMPARISON TABLE
+# ============================================================
+
+comparison = pd.DataFrame(
+    results
+)
+
+
+print()
+print()
+print("==============================")
+print("5-YEAR TOPSTEP COMPARISON")
+print("==============================")
+
+print(
+    comparison.to_string(
+        float_format=lambda x: f"{x:,.2f}"
+    )
+)
+
+
+# ============================================================
+# SAVE COMPARISON
+# ============================================================
+
+comparison.to_csv(
+    "topstep_5year_comparison.csv"
+)
+
+
+print()
+print("==============================")
+print("SAVED FILES")
+print("==============================")
+
+print(
+    "topstep_2016_2020_results.csv"
+)
+
+print(
+    "topstep_2016_2020_account_log.csv"
+)
+
+print(
+    "topstep_2016_2020_mll_audit.csv"
+)
+
+print(
+    "topstep_2021_2025_results.csv"
+)
+
+print(
+    "topstep_2021_2025_account_log.csv"
+)
+
+print(
+    "topstep_2021_2025_mll_audit.csv"
+)
+
+print(
+    "topstep_5year_comparison.csv"
+)

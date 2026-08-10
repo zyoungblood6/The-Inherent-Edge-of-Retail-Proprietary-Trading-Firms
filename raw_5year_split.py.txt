@@ -1,0 +1,371 @@
+```python
+import pandas as pd
+import numpy as np
+
+# ============================================================
+# SETTINGS
+# ============================================================
+
+DAY_FILE = "mnq_random_clean_days.csv"
+PATH_FILE = "mnq_10000_random_paths.npy"
+
+OUTPUT_2016_2020 = "mnq_raw_2016_2020_results.csv"
+OUTPUT_2021_2025 = "mnq_raw_2021_2025_results.csv"
+
+NUM_SIMULATIONS = 10000
+
+# Same exact parameters as final raw-strategy backtest
+CONTRACTS = 4
+TICK_SIZE = 0.25
+TICKS = 200
+DOLLARS_PER_POINT_PER_CONTRACT = 2.0
+
+POINT_DISTANCE = TICK_SIZE * TICKS
+
+TP_SL_DOLLARS = (
+    POINT_DISTANCE
+    * DOLLARS_PER_POINT_PER_CONTRACT
+    * CONTRACTS
+)
+
+# ============================================================
+# LOAD DATA
+# ============================================================
+
+days = pd.read_csv(DAY_FILE)
+paths = np.load(PATH_FILE)
+
+days["date"] = pd.to_datetime(days["date"])
+
+print("==============================")
+print("RAW STRATEGY 5-YEAR SPLIT")
+print("==============================")
+
+print(f"Original clean trading days: {len(days):,}")
+print(f"Random path shape: {paths.shape}")
+
+if paths.shape != (NUM_SIMULATIONS, len(days)):
+    raise ValueError(
+        "Random path shape does not match the clean-day data."
+    )
+
+# ============================================================
+# PERIOD DEFINITIONS
+# ============================================================
+
+periods = {
+    "2016_2020": (
+        pd.Timestamp("2016-01-01"),
+        pd.Timestamp("2020-12-31"),
+        OUTPUT_2016_2020
+    ),
+    "2021_2025": (
+        pd.Timestamp("2021-01-01"),
+        pd.Timestamp("2025-12-31"),
+        OUTPUT_2021_2025
+    )
+}
+
+# ============================================================
+# FUNCTION TO RUN ONE PERIOD
+# ============================================================
+
+def run_period(name, start_date, end_date, output_file):
+
+    print()
+    print("==============================")
+    print(f"RUNNING {name}")
+    print("==============================")
+
+    mask = (
+        (days["date"] >= start_date)
+        & (days["date"] <= end_date)
+    )
+
+    period_days = days.loc[mask].copy().reset_index(drop=True)
+
+    # Keep the EXACT SAME random paths.
+    period_indices = np.where(mask.to_numpy())[0]
+    period_paths = paths[:, period_indices]
+
+    print(f"Trading days: {len(period_days):,}")
+    print(f"Path shape: {period_paths.shape}")
+
+    expected_shape = (
+        NUM_SIMULATIONS,
+        len(period_days)
+    )
+
+    if period_paths.shape != expected_shape:
+        raise ValueError(
+            f"{name}: incorrect path shape. "
+            f"Expected {expected_shape}, "
+            f"got {period_paths.shape}"
+        )
+
+    if len(period_days) == 0:
+        raise ValueError(
+            f"{name}: no trading days found."
+        )
+
+    # ========================================================
+    # P&L ARRAYS
+    # ========================================================
+
+    long_pnl = period_days["long_pnl"].to_numpy()
+    short_pnl = period_days["short_pnl"].to_numpy()
+
+    # ========================================================
+    # RUN SIMULATIONS
+    # ========================================================
+
+    simulation_results = []
+
+    for simulation in range(NUM_SIMULATIONS):
+
+        directions = period_paths[simulation]
+
+        pnl = np.where(
+            directions == 1,
+            long_pnl,
+            short_pnl
+        )
+
+        wins = np.sum(
+            pnl == TP_SL_DOLLARS
+        )
+
+        losses = np.sum(
+            pnl == -TP_SL_DOLLARS
+        )
+
+        time_exits = (
+            len(pnl)
+            - wins
+            - losses
+        )
+
+        total_pnl = pnl.sum()
+        average_pnl = pnl.mean()
+
+        simulation_results.append({
+            "simulation": simulation + 1,
+            "trades": len(pnl),
+            "wins": wins,
+            "losses": losses,
+            "time_exits": time_exits,
+            "win_rate": (
+                wins / (wins + losses) * 100
+                if (wins + losses) > 0
+                else 0
+            ),
+            "total_pnl": total_pnl,
+            "average_pnl": average_pnl
+        })
+
+        if (simulation + 1) % 1000 == 0:
+            print(
+                f"Completed "
+                f"{simulation + 1:,} / "
+                f"{NUM_SIMULATIONS:,}"
+            )
+
+    results = pd.DataFrame(
+        simulation_results
+    )
+
+    # ========================================================
+    # SAVE
+    # ========================================================
+
+    results.to_csv(
+        output_file,
+        index=False
+    )
+
+    # ========================================================
+    # SUMMARY
+    # ========================================================
+
+    profitable = (
+        results.total_pnl > 0
+    ).sum()
+
+    losing = (
+        results.total_pnl < 0
+    ).sum()
+
+    print()
+    print(
+        f"---------- {name} ----------"
+    )
+
+    print(
+        f"Trading days: "
+        f"{len(period_days):,}"
+    )
+
+    print(
+        f"Mean total P&L: "
+        f"${results.total_pnl.mean():,.2f}"
+    )
+
+    print(
+        f"Median total P&L: "
+        f"${results.total_pnl.median():,.2f}"
+    )
+
+    print(
+        f"Std. dev. total P&L: "
+        f"${results.total_pnl.std():,.2f}"
+    )
+
+    print(
+        f"5th percentile: "
+        f"${results.total_pnl.quantile(0.05):,.2f}"
+    )
+
+    print(
+        f"95th percentile: "
+        f"${results.total_pnl.quantile(0.95):,.2f}"
+    )
+
+    print(
+        f"Mean average trade: "
+        f"${results.average_pnl.mean():,.4f}"
+    )
+
+    print(
+        f"Median average trade: "
+        f"${results.average_pnl.median():,.4f}"
+    )
+
+    print(
+        f"Mean TP/SL win rate: "
+        f"{results.win_rate.mean():.2f}%"
+    )
+
+    print(
+        f"Profitable simulations: "
+        f"{profitable:,} "
+        f"({profitable / NUM_SIMULATIONS * 100:.2f}%)"
+    )
+
+    print(
+        f"Losing simulations: "
+        f"{losing:,} "
+        f"({losing / NUM_SIMULATIONS * 100:.2f}%)"
+    )
+
+    print(
+        f"Saved: {output_file}"
+    )
+
+    return results
+
+
+# ============================================================
+# RUN BOTH FIVE-YEAR PERIODS
+# ============================================================
+
+results_2016_2020 = run_period(
+    "2016–2020",
+    periods["2016_2020"][0],
+    periods["2016_2020"][1],
+    periods["2016_2020"][2]
+)
+
+results_2021_2025 = run_period(
+    "2021–2025",
+    periods["2021_2025"][0],
+    periods["2021_2025"][1],
+    periods["2021_2025"][2]
+)
+
+# ============================================================
+# SIDE-BY-SIDE COMPARISON
+# ============================================================
+
+print()
+print()
+print("==============================")
+print("5-YEAR RAW STRATEGY COMPARISON")
+print("==============================")
+
+summary = pd.DataFrame({
+    "Metric": [
+        "Trading days",
+        "Mean total P&L",
+        "Median total P&L",
+        "Std. dev. total P&L",
+        "5th percentile",
+        "95th percentile",
+        "Mean average trade",
+        "Median average trade",
+        "Mean TP/SL win rate",
+        "Profitable simulations",
+        "Losing simulations"
+    ],
+    "2016–2020": [
+        len(results_2016_2020) * 0 + (
+            days[
+                (days.date >= "2016-01-01")
+                & (days.date <= "2020-12-31")
+            ].shape[0]
+        ),
+        results_2016_2020.total_pnl.mean(),
+        results_2016_2020.total_pnl.median(),
+        results_2016_2020.total_pnl.std(),
+        results_2016_2020.total_pnl.quantile(0.05),
+        results_2016_2020.total_pnl.quantile(0.95),
+        results_2016_2020.average_pnl.mean(),
+        results_2016_2020.average_pnl.median(),
+        results_2016_2020.win_rate.mean(),
+        (
+            results_2016_2020.total_pnl > 0
+        ).sum(),
+        (
+            results_2016_2020.total_pnl < 0
+        ).sum()
+    ],
+    "2021–2025": [
+        len(
+            days[
+                (days.date >= "2021-01-01")
+                & (days.date <= "2025-12-31")
+            ]
+        ),
+        results_2021_2025.total_pnl.mean(),
+        results_2021_2025.total_pnl.median(),
+        results_2021_2025.total_pnl.std(),
+        results_2021_2025.total_pnl.quantile(0.05),
+        results_2021_2025.total_pnl.quantile(0.95),
+        results_2021_2025.average_pnl.mean(),
+        results_2021_2025.average_pnl.median(),
+        results_2021_2025.win_rate.mean(),
+        (
+            results_2021_2025.total_pnl > 0
+        ).sum(),
+        (
+            results_2021_2025.total_pnl < 0
+        ).sum()
+    ]
+})
+
+print(
+    summary.to_string(index=False)
+)
+
+print()
+print("==============================")
+print("SPLIT TEST COMPLETE")
+print("==============================")
+print(
+    f"TP/SL per winning/losing trade: "
+    f"${TP_SL_DOLLARS:,.2f}"
+)
+print()
+print("Saved:")
+print(OUTPUT_2016_2020)
+print(OUTPUT_2021_2025)
+```
