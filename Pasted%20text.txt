@@ -1,0 +1,211 @@
+.venv) zyb@Mac Trading Backtest % python audit_10am_5x50k_COMPLETE.py
+
+======================================================================
+A. STRATEGY / RANDOM PATH INTEGRITY
+======================================================================
+PASS | 10,000 random paths | found 10,000
+PASS | Path columns equal clean trading days | 2,485 vs 2,485
+PASS | All path values are 0/1
+PASS | Expected clean trading-day count = 2,485 | found 2,485
+PASS | Strategy gross TP/SL = $400 | $400.00
+PASS | 8-MNQ round-turn cost = $9.76 | $9.76
+PASS | First block has 1,246 clean days | found 1,246
+PASS | Second block has 1,239 clean days | found 1,239
+PASS | Five-year blocks cover every clean day exactly once
+
+======================================================================
+B. RAW STRATEGY — INDEPENDENT RECOMPUTATION
+======================================================================
+PASS | Full sample: saved raw row exists
+PASS | Full sample: Trading days per path | saved=2485 recalc=2485
+PASS | Full sample: Mean wins per path | saved=1143.9848 recalc=1143.9848
+PASS | Full sample: Mean losses per path | saved=1145.0152 recalc=1145.0152
+PASS | Full sample: Mean time exits per path | saved=196.0 recalc=196.0
+PASS | Full sample: TP/SL win rate % | saved=49.97749235474006 recalc=49.97749235474006
+PASS | Full sample: Mean raw P&L per trade | saved=-0.1677501810865191 recalc=-0.16775018108651912
+PASS | Full sample: Mean raw total P&L per path | saved=-416.8592 recalc=-416.8592
+PASS | Full sample: Median raw total P&L per path | saved=-568.0 recalc=-568.0
+PASS | Full sample: Total randomized trade observations | saved=24850000 recalc=24850000
+PASS | 2016-08-08 to 2021-08-06: saved raw row exists
+PASS | 2016-08-08 to 2021-08-06: Trading days per path | saved=1246 recalc=1246
+PASS | 2016-08-08 to 2021-08-06: Mean wins per path | saved=524.9424 recalc=524.9424
+PASS | 2016-08-08 to 2021-08-06: Mean losses per path | saved=525.0576 recalc=525.0576
+PASS | 2016-08-08 to 2021-08-06: Mean time exits per path | saved=196.0 recalc=196.0
+PASS | 2016-08-08 to 2021-08-06: TP/SL win rate % | saved=49.99451428571429 recalc=49.99451428571429
+PASS | 2016-08-08 to 2021-08-06: Mean raw P&L per trade | saved=-0.040753772070626 recalc=-0.040753772070626006
+PASS | 2016-08-08 to 2021-08-06: Mean raw total P&L per path | saved=-50.7792 recalc=-50.7792
+PASS | 2016-08-08 to 2021-08-06: Median raw total P&L per path | saved=-96.0 recalc=-96.0
+PASS | 2016-08-08 to 2021-08-06: Total randomized trade observations | saved=12460000 recalc=12460000
+PASS | 2021-08-09 to 2026-08-05: saved raw row exists
+PASS | 2021-08-09 to 2026-08-05: Trading days per path | saved=1239 recalc=1239
+PASS | 2021-08-09 to 2026-08-05: Mean wins per path | saved=619.0424 recalc=619.0424
+PASS | 2021-08-09 to 2026-08-05: Mean losses per path | saved=619.9576 recalc=619.9576
+PASS | 2021-08-09 to 2026-08-05: Mean time exits per path | saved=0.0 recalc=0.0
+PASS | 2021-08-09 to 2026-08-05: TP/SL win rate % | saved=49.96306698950767 recalc=49.96306698950767
+PASS | 2021-08-09 to 2026-08-05: Mean raw P&L per trade | saved=-0.2954640839386602 recalc=-0.2954640839386602
+PASS | 2021-08-09 to 2026-08-05: Mean raw total P&L per path | saved=-366.08 recalc=-366.08
+PASS | 2021-08-09 to 2026-08-05: Median raw total P&L per path | saved=-400.0 recalc=-400.0
+PASS | 2021-08-09 to 2026-08-05: Total randomized trade observations | saved=12390000 recalc=12390000
+PASS | Full raw TP/SL win rate is ~50% | 49.9775%
+PASS | Full raw mean P&L/trade is near zero | $-0.1678
+PASS | First-block mean time exits/path = 196
+PASS | Second-block mean time exits/path = 0
+
+======================================================================
+C. FIVE-ACCOUNT FULL-SAMPLE SCALING
+======================================================================
+PASS | Full one-account and five-account rows = 10,000
+PASS | Simulation IDs align
+PASS | Full sample 5x scaling: combine_subscriptions_purchased
+PASS | Full sample 5x scaling: monthly_rebills
+PASS | Full sample 5x scaling: paid_resets
+PASS | Full sample 5x scaling: reset_credits_earned
+PASS | Full sample 5x scaling: reset_credits_used
+PASS | Full sample 5x scaling: reset_credits_expired
+PASS | Full sample 5x scaling: reset_credits_remaining
+PASS | Full sample 5x scaling: combine_passes
+PASS | Full sample 5x scaling: xfa_accounts_earned
+PASS | Full sample 5x scaling: back2funded_reactivations
+PASS | Full sample 5x scaling: xfa_failures
+PASS | Full sample 5x scaling: accounts_blown
+PASS | Full sample 5x scaling: payouts
+PASS | Full sample 5x scaling: trader_payouts
+PASS | Full sample 5x scaling: account_costs
+PASS | Full sample 5x scaling: actual_net_pnl
+PASS | Five synchronized accounts do not change profitable %
+
+======================================================================
+D. TOPSTEP RESULT-LEVEL RECONCILIATION
+======================================================================
+PASS | One-account full sample: account costs reconcile
+PASS | One-account full sample: actual net P&L = payouts - costs
+PASS | One-account full sample: Back2Funded always OFF
+PASS | One-account full sample: no paid resets
+PASS | One-account full sample: rebills equal reset credits earned
+PASS | One-account full sample: Reset Credit conservation
+PASS | Five-account full sample: account costs reconcile
+PASS | Five-account full sample: actual net P&L = payouts - costs
+PASS | Five-account full sample: Back2Funded always OFF
+PASS | Five-account full sample: no paid resets
+PASS | Five-account full sample: rebills equal reset credits earned
+PASS | Five-account full sample: Reset Credit conservation
+PASS | Five-account first 5 years: account costs reconcile
+PASS | Five-account first 5 years: actual net P&L = payouts - costs
+PASS | Five-account first 5 years: Back2Funded always OFF
+PASS | Five-account first 5 years: no paid resets
+PASS | Five-account first 5 years: rebills equal reset credits earned
+PASS | Five-account first 5 years: Reset Credit conservation
+PASS | Five-account second 5 years: account costs reconcile
+PASS | Five-account second 5 years: actual net P&L = payouts - costs
+PASS | Five-account second 5 years: Back2Funded always OFF
+PASS | Five-account second 5 years: no paid resets
+PASS | Five-account second 5 years: rebills equal reset credits earned
+PASS | Five-account second 5 years: Reset Credit conservation
+
+======================================================================
+E. FULL-SAMPLE BILLING LOG AUDIT
+======================================================================
+PASS | Billing events reconcile to result counts
+PASS | No duplicate same-date rebills on same Combine
+PASS | Every monthly rebill charge = $85
+PASS | Every new Combine purchase charge = $85
+
+======================================================================
+F. FULL-SAMPLE OPTION 2 PAYOUT AUDIT
+======================================================================
+PASS | Payout log contains all Option 2 audit fields
+PASS | Every payout has >=3 trading days
+PASS | Every payout cycle has positive net profit
+PASS | Stored consistency ratios recalculate exactly
+PASS | Every payout satisfies <=40% consistency
+PASS | No gross payout exceeds $6,000 cap
+PASS | No gross payout exceeds 50% of pre-payout balance
+PASS | No payout is below $125
+PASS | Every trader payout is exactly 90% of gross payout
+
+======================================================================
+G. FULL-SAMPLE MLL AUDIT
+======================================================================
+PASS | MLL never moves downward
+PASS | Combine MLL never exceeds $50,000 lock
+PASS | XFA MLL never exceeds $0 lock
+
+======================================================================
+H. SAVED SUMMARY TABLE RECONCILIATION
+======================================================================
+PASS | Full sample: summary row exists
+PASS | Full sample: summary Mean Combine subscriptions purchased | saved=155.0335 recalc=155.0335
+PASS | Full sample: summary Mean monthly rebills | saved=308.396 recalc=308.396
+PASS | Full sample: summary Mean Reset Credits earned | saved=308.396 recalc=308.396
+PASS | Full sample: summary Mean Reset Credits used | saved=281.5485 recalc=281.5485
+PASS | Full sample: summary Mean Combine passes | saved=88.0995 recalc=88.0995
+PASS | Full sample: summary Mean XFA accounts earned | saved=88.0995 recalc=88.0995
+PASS | Full sample: summary Mean XFA failures | saved=87.3615 recalc=87.3615
+PASS | Full sample: summary Mean payouts | saved=74.747 recalc=74.747
+PASS | Full sample: summary Mean trader payouts | saved=46842.479557656385 recalc=46842.479557656385
+PASS | Full sample: summary Mean account costs | saved=39391.5075 recalc=39391.5075
+PASS | Full sample: summary TOTAL trader payouts | saved=468424795.57656384 recalc=468424795.57656384
+PASS | Full sample: summary TOTAL account costs | saved=393915075.0 recalc=393915075.0
+PASS | Full sample: summary TOTAL ACTUAL net P&L | saved=74509720.57656378 recalc=74509720.57656378
+PASS | Full sample: summary Mean ACTUAL net P&L | saved=7450.972057656378 recalc=7450.972057656378
+PASS | Full sample: summary Median ACTUAL net P&L | saved=5184.160000000006 recalc=5184.160000000006
+PASS | Full sample: summary Std. dev. ACTUAL net P&L | saved=19630.584636100317 recalc=19630.584636100317
+PASS | Full sample: summary 5th percentile ACTUAL net P&L | saved=-19977.090499999995 recalc=-19977.09049999999
+PASS | Full sample: summary 95th percentile ACTUAL net P&L | saved=43064.08956249999 recalc=43064.08956249999
+PASS | Full sample: summary Profitable simulations | saved=6030 recalc=6030
+PASS | Full sample: summary Profitable % | saved=60.3 recalc=60.3
+PASS | Full sample: summary Losing simulations | saved=3970 recalc=3970
+PASS | Full sample: summary Losing % | saved=39.7 recalc=39.7
+PASS | 2016-08-08 to 2021-08-06: summary row exists
+PASS | 2016-08-08 to 2021-08-06: summary Mean Combine subscriptions purchased | saved=67.875 recalc=67.875
+PASS | 2016-08-08 to 2021-08-06: summary Mean monthly rebills | saved=161.6975 recalc=161.6975
+PASS | 2016-08-08 to 2021-08-06: summary Mean Reset Credits earned | saved=161.6975 recalc=161.6975
+PASS | 2016-08-08 to 2021-08-06: summary Mean Reset Credits used | saved=140.606 recalc=140.606
+PASS | 2016-08-08 to 2021-08-06: summary Mean Combine passes | saved=40.643 recalc=40.643
+PASS | 2016-08-08 to 2021-08-06: summary Mean XFA accounts earned | saved=40.643 recalc=40.643
+PASS | 2016-08-08 to 2021-08-06: summary Mean XFA failures | saved=40.015 recalc=40.015
+PASS | 2016-08-08 to 2021-08-06: summary Mean payouts | saved=33.3135 recalc=33.3135
+PASS | 2016-08-08 to 2021-08-06: summary Mean trader payouts | saved=20779.068332114868 recalc=20779.068332114868
+PASS | 2016-08-08 to 2021-08-06: summary Mean account costs | saved=19513.6625 recalc=19513.6625
+PASS | 2016-08-08 to 2021-08-06: summary TOTAL trader payouts | saved=207790683.3211487 recalc=207790683.3211487
+PASS | 2016-08-08 to 2021-08-06: summary TOTAL account costs | saved=195136625.0 recalc=195136625.0
+PASS | 2016-08-08 to 2021-08-06: summary TOTAL ACTUAL net P&L | saved=12654058.321148705 recalc=12654058.321148705
+PASS | 2016-08-08 to 2021-08-06: summary Mean ACTUAL net P&L | saved=1265.4058321148705 recalc=1265.4058321148705
+PASS | 2016-08-08 to 2021-08-06: summary Median ACTUAL net P&L | saved=-1071.124999999996 recalc=-1071.1249999999961
+PASS | 2016-08-08 to 2021-08-06: summary Std. dev. ACTUAL net P&L | saved=12928.388028717442 recalc=12928.388028717442
+PASS | 2016-08-08 to 2021-08-06: summary 5th percentile ACTUAL net P&L | saved=-15234.594 recalc=-15234.594
+PASS | 2016-08-08 to 2021-08-06: summary 95th percentile ACTUAL net P&L | saved=25907.529937500003 recalc=25907.529937500003
+PASS | 2016-08-08 to 2021-08-06: summary Profitable simulations | saved=4645 recalc=4645
+PASS | 2016-08-08 to 2021-08-06: summary Profitable % | saved=46.45 recalc=46.45
+PASS | 2016-08-08 to 2021-08-06: summary Losing simulations | saved=5355 recalc=5355
+PASS | 2016-08-08 to 2021-08-06: summary Losing % | saved=53.55 recalc=53.55
+PASS | 2021-08-09 to 2026-08-05: summary row exists
+PASS | 2021-08-09 to 2026-08-05: summary Mean Combine subscriptions purchased | saved=100.9565 recalc=100.9565
+PASS | 2021-08-09 to 2026-08-05: summary Mean monthly rebills | saved=145.803 recalc=145.803
+PASS | 2021-08-09 to 2026-08-05: summary Mean Reset Credits earned | saved=145.803 recalc=145.803
+PASS | 2021-08-09 to 2026-08-05: summary Mean Reset Credits used | saved=131.1055 recalc=131.1055
+PASS | 2021-08-09 to 2026-08-05: summary Mean Combine passes | saved=47.081 recalc=47.081
+PASS | 2021-08-09 to 2026-08-05: summary Mean XFA accounts earned | saved=47.081 recalc=47.081
+PASS | 2021-08-09 to 2026-08-05: summary Mean XFA failures | saved=46.343 recalc=46.343
+PASS | 2021-08-09 to 2026-08-05: summary Mean payouts | saved=40.6485 recalc=40.6485
+PASS | 2021-08-09 to 2026-08-05: summary Mean trader payouts | saved=25541.983908232913 recalc=25541.983908232913
+PASS | 2021-08-09 to 2026-08-05: summary Mean account costs | saved=20974.5575 recalc=20974.5575
+PASS | 2021-08-09 to 2026-08-05: summary TOTAL trader payouts | saved=255419839.08232912 recalc=255419839.08232912
+PASS | 2021-08-09 to 2026-08-05: summary TOTAL account costs | saved=209745575.0 recalc=209745575.0
+PASS | 2021-08-09 to 2026-08-05: summary TOTAL ACTUAL net P&L | saved=45674264.08232912 recalc=45674264.082329124
+PASS | 2021-08-09 to 2026-08-05: summary Mean ACTUAL net P&L | saved=4567.426408232913 recalc=4567.426408232913
+PASS | 2021-08-09 to 2026-08-05: summary Median ACTUAL net P&L | saved=2016.6800000000037 recalc=2016.6800000000035
+PASS | 2021-08-09 to 2026-08-05: summary Std. dev. ACTUAL net P&L | saved=14671.028176303023 recalc=14671.028176303025
+PASS | 2021-08-09 to 2026-08-05: summary 5th percentile ACTUAL net P&L | saved=-14505.173 recalc=-14505.172999999999
+PASS | 2021-08-09 to 2026-08-05: summary 95th percentile ACTUAL net P&L | saved=31755.797624999937 recalc=31755.797624999937
+PASS | 2021-08-09 to 2026-08-05: summary Profitable simulations | saved=5605 recalc=5605
+PASS | 2021-08-09 to 2026-08-05: summary Profitable % | saved=56.05 recalc=56.05
+PASS | 2021-08-09 to 2026-08-05: summary Losing simulations | saved=4395 recalc=4395
+PASS | 2021-08-09 to 2026-08-05: summary Losing % | saved=43.95 recalc=43.95
+
+======================================================================
+FINAL AUDIT STATUS: PASS
+
+Raw strategy, exact five-year split, full Topstep Option 2 accounting, five-account scaling, saved five-year Topstep results, billing, payout rules, Reset Credits, MLL behavior, and P&L reconciliation all passed.
+======================================================================
+(.venv) zyb@Mac Trading Backtest % 
