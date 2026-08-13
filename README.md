@@ -1,6 +1,6 @@
 # The Inherent Edge of Retail Proprietary Trading Firms
 
-This repository contains the code, simulation outputs, audit materials, and exhibit data associated with the paper **"The Inherent Edge of Retail Proprietary Trading Firms."**
+This repository contains the code, simulation outputs, audit materials, and exhibit data associated with the paper **"The Inherent Edge of Retail Proprietary Trading Firms"** written by **Zach Youngblood**.
 
 The study examines retail proprietary trading accounts as path-dependent financial contracts. A randomized trading strategy is used as a neutral baseline, and the same randomized trading paths are subsequently evaluated under a simulated proprietary trading framework. This structure allows the economic effects of the prop-firm rules to be separated from the underlying raw trading performance.
 
